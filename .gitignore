@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+*.tmp
+.token
+status.json
+任务台账.md

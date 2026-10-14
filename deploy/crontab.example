@@ -1,0 +1,14 @@
+# 内网机器 crontab 示例
+
+# ① 巡检（每 5 分钟）
+*/5 * * * * /opt/watcher/check.sh
+
+# ② 自愈（每 10 分钟，静默：无输出=正常）
+*/10 * * * * /usr/bin/python3 /opt/watcher/autofix.py
+
+# ③ 台账刷新（每 15 分钟，静默）
+*/15 * * * * /usr/bin/python3 /opt/watcher/build-ledger.py >/dev/null 2>&1
+
+# ④ 告警邮件监听（每 5 分钟，静默：没告警=无输出）
+#    公网侧发来的告警邮件 → 认出 → 立刻再修一次 → 归标签移出收件箱
+*/5 * * * * /usr/bin/python3 /opt/watcher/alert-mail-watch.py

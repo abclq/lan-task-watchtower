@@ -1,0 +1,8 @@
+# 追加到你的 frpc.toml
+# ⚠️ 只映射回环地址上的单个端口，不要映射整机
+[[proxies]]
+name = "watcher-http"
+type = "tcp"
+localIP = "127.0.0.1"
+localPort = 18080
+remotePort = 43154        # ⚠️ 确认你的 frps 放行了这个端口
