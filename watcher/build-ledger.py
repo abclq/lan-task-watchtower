@@ -24,8 +24,7 @@ def md_table(headers, rows):
     return "\n".join(out) + "\n"
 
 def main():
-    if len(sys.argv) > 1:
-        OUT = sys.argv[1]
+    out = sys.argv[1] if len(sys.argv) > 1 else OUT
     if not os.path.exists(SRC):
         print(f"❌ 找不到 {SRC}", file=sys.stderr); sys.exit(1)
     d = json.load(open(SRC, encoding="utf-8"))
@@ -96,11 +95,11 @@ def main():
     A("- ⚠️ **已知软肋**：依赖日志文件时间，任务不写日志会误判")
     A("")
 
-    os.makedirs(os.path.dirname(OUT), exist_ok=True)
-    tmp = OUT + ".tmp"
+    os.makedirs(os.path.dirname(out) or ".", exist_ok=True)
+    tmp = out + ".tmp"
     open(tmp, "w", encoding="utf-8").write("\n".join(L))
-    os.replace(tmp, OUT)
-    print(f"✅ 台账已生成：{OUT}")
+    os.replace(tmp, out)
+    print(f"✅ 台账已生成：{out}")
 
 if __name__ == "__main__":
     main()

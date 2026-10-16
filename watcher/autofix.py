@@ -31,18 +31,20 @@ def log(msg):
         f.write(f"[{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {msg}\n")
 
 def run(cmd, timeout=60):
+    """cmd 是参数列表（不经 shell）"""
     try:
-        r = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=timeout)
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
         return r.returncode, (r.stdout or "") + (r.stderr or "")
     except Exception as e:
+        print(f"autofix: 执行失败 {cmd!r}: {e}", file=sys.stderr)
         return 999, str(e)
 
 def is_active(name, scope):
-    cmd = f"systemctl --user is-active {name}" if scope == "user" else f"systemctl is-active {name}"
+    cmd = ["systemctl", "--user", "is-active", name] if scope == "user" else ["systemctl", "is-active", name]
     return run(cmd, 20)[1].strip() == "active"
 
 def restart(name, scope):
-    cmd = f"systemctl --user restart {name}" if scope == "user" else f"sudo -n systemctl restart {name}"
+    cmd = ["systemctl", "--user", "restart", name] if scope == "user" else ["sudo", "-n", "systemctl", "restart", name]
     rc, out = run(cmd, 60)
     return rc == 0, out.strip()
 
@@ -51,7 +53,8 @@ def main():
         return
     try:
         d = json.load(open(STATUS, encoding="utf-8"))
-    except Exception:
+    except Exception as e:
+        print(f"autofix: 读不了 {STATUS}: {e}", file=sys.stderr)
         return
 
     actions, skipped = [], []

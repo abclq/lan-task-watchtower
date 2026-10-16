@@ -15,6 +15,7 @@ alert-mail-watch.py —— 告警邮件监听（告警闭环的内网侧一半�
 日志：/var/log/watcher/alert-mail.log
 """
 import os
+import email.utils
 import subprocess
 import sys
 import datetime
@@ -24,12 +25,12 @@ WORKDIR = "/opt/watcher"
 
 # 邮件操作命令：这里以 gws（Google Workspace CLI）为例，换成你用的即可
 # 需要支持：search / send / label 三个子命令
-MAIL_CMD = f"{WORKDIR}/google_api.py gmail"
+MAIL_CMD = [f"{WORKDIR}/google_api.py", "gmail"]   # 参数列表，不经 shell
 
 # 主题标记：公网侧发告警邮件时，主题必须含其中之一
 SUBJECT_PATTERNS = ["本机告警", "内网告警", "巡检告警"]
 
-# 发件人白名单：只认这些地址发来的告警（留空 = 不校验）
+# 发件人白名单：只认这些地址发来的告警（精确匹配，不区分大小写；留空 = 不校验）
 ALLOWED_SENDERS = ["alerts@example.com"]
 
 # 归档标签名
@@ -52,16 +53,25 @@ def log(msg):
 
 
 def run(cmd, timeout=120):
+    """cmd 是参数列表（不经 shell）"""
     env = dict(os.environ)
     if PROXY:
         env.setdefault("https_proxy", PROXY)
         env.setdefault("http_proxy", PROXY)
     try:
-        r = subprocess.run(cmd, shell=True, capture_output=True, text=True,
+        r = subprocess.run(cmd, capture_output=True, text=True,
                            timeout=timeout, env=env, cwd=WORKDIR)
         return r.returncode, (r.stdout or "") + (r.stderr or "")
     except Exception as e:
+        print(f"alert-mail-watch: 执行失败 {cmd!r}: {e}", file=sys.stderr)
         return 999, str(e)
+
+
+def sender_allowed(from_header):
+    """解析 From 头里的地址再精确比较，不做子串匹配"""
+    _, addr = email.utils.parseaddr(from_header or "")
+    addr = addr.strip().lower()
+    return bool(addr) and addr in {s.strip().lower() for s in ALLOWED_SENDERS}
 
 
 def find_alerts():
@@ -71,12 +81,14 @@ def find_alerts():
 
     seen, out = set(), []
     for pat in SUBJECT_PATTERNS:
-        rc, res = run(f'{MAIL_CMD} search "in:anywhere is:unread subject:{pat}" --max 5')
+        rc, res = run(MAIL_CMD + ["search", f"in:anywhere is:unread subject:{pat}", "--max", "5"])
         if rc != 0:
+            print(f"alert-mail-watch: 搜索「{pat}」失败 rc={rc}: {res.strip()[:200]}", file=sys.stderr)
             continue
         try:
             msgs = json.loads(res)
-        except Exception:
+        except Exception as e:
+            print(f"alert-mail-watch: 搜索「{pat}」返回不是 JSON: {e}", file=sys.stderr)
             continue
         for m in msgs if isinstance(msgs, list) else []:
             mid = m.get("id")
@@ -88,15 +100,16 @@ def find_alerts():
 
     # 发件人白名单（防冒用主题触发内网动作）
     if ALLOWED_SENDERS:
-        out = [a for a in out if any(w in a[2] for w in ALLOWED_SENDERS)]
+        out = [a for a in out if sender_allowed(a[2])]
     return out
 
 
 def archive_to_label(mid):
     """归入标签 + 移出收件箱/垃圾箱/未读：收着但不打扰"""
-    rc, _ = run(f'{MAIL_CMD} modify {mid} '
-                f'--add-label "{LABEL_NAME}" '
-                f'--remove-label INBOX --remove-label UNREAD --remove-label SPAM')
+    rc, _ = run(MAIL_CMD + ["modify", mid,
+                            "--add-label", LABEL_NAME,
+                            "--remove-label", "INBOX", "--remove-label", "UNREAD",
+                            "--remove-label", "SPAM"])
     return rc == 0
 
 
@@ -115,7 +128,7 @@ def main():
     # 立刻跑一次自愈：把能修的先修了
     lines.append("")
     lines.append("  ── 立刻跑一次自愈 ──")
-    rc, out = run(f"python3 {AUTOFIX}", timeout=300)
+    rc, out = run([sys.executable, AUTOFIX], timeout=300)
     fixed = out.strip() or "✅ 当前无需维修（巡检全绿）"
     lines += [f"  {x}" for x in fixed.splitlines()]
 

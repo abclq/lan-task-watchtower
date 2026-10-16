@@ -16,14 +16,21 @@ for p in $WATCH; do
 done
 STATUS=$([ -n "$ALERT" ] && echo "ALERT" || echo "OK")
 
-cat > "$OUT" <<EOF
-{
-  "host": "$(hostname)",
-  "time": "$(date '+%F %T')",
-  "status": "${STATUS}",
-  "alert": "${ALERT}",
-  "mem": "$(free -m | awk '/Mem:/ {printf "%.0f%%", $3/$2*100}')",
-  "disk": "$(df -h / | awk 'NR==2 {print $5}')",
-  "load": "$(cut -d' ' -f1-3 /proc/loadavg)"
-}
-EOF
+# 用 json.dumps 生成，值里有引号/反斜杠也不会坏；先写 .tmp 再 mv，读方不会读到半截文件
+TMP="${OUT}.tmp.$$"
+python3 - "$TMP" \
+  "$(hostname)" \
+  "$(date '+%F %T')" \
+  "$STATUS" \
+  "$ALERT" \
+  "$(free -m | awk '/Mem:/ {printf "%.0f%%", $3/$2*100}')" \
+  "$(df -h / | awk 'NR==2 {print $5}')" \
+  "$(cut -d' ' -f1-3 /proc/loadavg)" <<'PY' || { rm -f "$TMP"; exit 1; }
+import json, sys
+path, host, time, status, alert, mem, disk, load = sys.argv[1:9]
+with open(path, "w", encoding="utf-8") as f:
+    json.dump({"host": host, "time": time, "status": status, "alert": alert,
+               "mem": mem, "disk": disk, "load": load}, f, ensure_ascii=False, indent=2)
+    f.write("\n")
+PY
+mv -f "$TMP" "$OUT"

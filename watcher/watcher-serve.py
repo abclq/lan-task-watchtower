@@ -24,10 +24,15 @@ REFRESH_SEC = 300                              # 刷新间隔
 def load_token():
     try:
         with open(TOKEN_FILE) as f:
-            return f.read().strip()
+            token = f.read().strip()
     except Exception as e:
         print(f"❌ 读不到 token: {e}", file=sys.stderr)
         sys.exit(1)
+    if len(token) < 32:
+        # 空文件 / 过短 token 会让 /s/.json 之类的路径变成公开地址
+        print(f"❌ token 太短（{len(token)} 字符，至少 32）：{TOKEN_FILE}", file=sys.stderr)
+        sys.exit(1)
+    return token
 
 TOKEN = load_token()
 
@@ -35,7 +40,9 @@ def refresh_loop():
     """后台线程：定期跑巡检脚本"""
     while True:
         try:
-            subprocess.run([CHECK_CMD], timeout=120, capture_output=True)
+            r = subprocess.run([CHECK_CMD], timeout=120, capture_output=True, text=True)
+            if r.returncode != 0:
+                print(f"巡检脚本退出码 {r.returncode}: {(r.stderr or '').strip()[:200]}", file=sys.stderr)
         except Exception as e:
             print(f"巡检失败: {e}", file=sys.stderr)
         time.sleep(REFRESH_SEC)
@@ -49,7 +56,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
         try:
             with open(CACHE, "rb") as f:
                 body = f.read()
-        except Exception:
+        except Exception as e:
+            print(f"读取 {CACHE} 失败: {e}", file=sys.stderr)
             self.send_error(503)
             return
         self.send_response(200)
