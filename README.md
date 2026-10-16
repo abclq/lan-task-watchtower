@@ -4,7 +4,7 @@
   <img src="https://img.shields.io/badge/内网巡检-零依赖-blue?style=flat-square" alt="内网巡检">
   <img src="https://img.shields.io/badge/frp-透传-orange?style=flat-square" alt="frp">
   <img src="https://img.shields.io/badge/SSH-不需要-success?style=flat-square" alt="no ssh">
-  <img src="https://img.shields.io/badge/Python-3.8%2B-3776AB?style=flat-square&logo=python&logoColor=white" alt="python">
+  <img src="https://img.shields.io/badge/Python-3.10%2B-3776AB?style=flat-square&logo=python&logoColor=white" alt="python">
   <img src="https://img.shields.io/badge/协议-MIT-green?style=flat-square" alt="MIT">
 </p>
 
@@ -102,15 +102,23 @@
 .
 ├── README.md
 ├── watcher/
-│   ├── check.sh              # ① 内网巡检脚本（进程/服务/链路）
+│   ├── check.sh              # ① 巡检入口（cron / serve 调它，兼容旧路径）
+│   ├── check.py              # ① 巡检本体：按 probes.json 声明执行探测，写 status.json
+│   ├── schema.py             # status.json 字段约定 + 校验（三个脚本共用）
 │   ├── watcher-serve.py      # ② 只读 HTTP 服务（令牌路径）
-│   ├── autofix.py            # ④ 自愈（黑名单 + 存活复检）
+│   ├── autofix.py            # ④ 自愈（白名单 + 存活复检）
 │   ├── build-ledger.py       # ⑤ 台账生成
 │   └── alert-mail-watch.py   # ⑥ 告警邮件监听（收信 → 立刻再修 → 归档）
 ├── deploy/
 │   ├── watcher-serve.service # systemd 单元
 │   ├── frpc-watcher.toml     # frpc 映射配置示例
+│   ├── probes.example.json   # 探测配置示例（复制到 /etc/watcher/probes.json）
 │   └── crontab.example       # crontab 示例
+├── tests/
+│   ├── run_tests.py          # 端到端测试：python3 tests/run_tests.py
+│   ├── fixtures/             # 健康 / 有问题 / 旧格式 三份 status.json
+│   ├── fake-hermes-adapter.py
+│   └── bin/                  # 测试用假 systemctl / sudo
 └── docs/
     └── 方案说明.md            # 设计取舍与踩坑记录
 ```
@@ -132,19 +140,26 @@ auth.token = "<强随机串>"
 
 **1. 装巡检脚本**
 
-```bash
-sudo mkdir -p /opt/watcher /var/lib/watcher
-sudo cp watcher/check.sh /opt/watcher/
-sudo chmod +x /opt/watcher/check.sh
+需要 Python 3.10+，只用标准库。
 
-# 改配置区：写你要盯的进程名
-sudo vim /opt/watcher/check.sh
-#   WATCH="nginx redis-server myapp"
-#   OUT="/var/lib/watcher/status.json"
+```bash
+sudo mkdir -p /opt/watcher /var/lib/watcher /etc/watcher
+sudo cp watcher/*.py watcher/check.sh /opt/watcher/      # check.py 依赖同目录的 schema.py
+sudo chmod +x /opt/watcher/check.sh /opt/watcher/check.py
+
+# 声明要巡检什么（见下文「🧩 探测配置」）
+sudo cp deploy/probes.example.json /etc/watcher/probes.json
+sudo vim /etc/watcher/probes.json
+
+# 先手动跑一次，看输出对不对（- 表示打到屏幕，不写文件）
+/opt/watcher/check.py --out -
 
 # 每 5 分钟跑一次
 ( crontab -l 2>/dev/null; echo "*/5 * * * * /opt/watcher/check.sh" ) | crontab -
 ```
+
+> 退出码：0 健康 / 1 有问题 / 2 配置写错了。配置写错时 status.json 照样会写（`exit_code: 2`），
+> 公网侧能看到，不会悄悄变成「一切正常」。
 
 **2. 起只读 HTTP 服务**
 
@@ -204,8 +219,10 @@ GET http://<VPS_IP>:43154/s/<TOKEN>.json
 |---|---|
 | `healthy == true` | 正常，静默 |
 | `healthy == false` | 列出 `problems` 数组每一条 |
+| `exit_code == 2` | 报「巡检配置有误」（`problems` 里是 `probe-error`） |
 | HTTP 失败 / 超时 | 报「拉取失败，链路可能断了」 |
-| `checked_at` 距今 > 15 分钟 | 报「数据失联」（**关键**：链路断了 JSON 不会变，只能靠时间戳） |
+| `now - checked_at_epoch > 900` | 报「数据失联」（**关键**：链路断了 JSON 不会变，只能靠时间戳） |
+| 没有 `schema_version` 或不等于 1 | 报「格式不对」，别按旧字段硬解析 |
 
 ---
 
@@ -245,13 +262,18 @@ GET http://<VPS_IP>:43154/s/<TOKEN>.json
 
 ---
 
-## 📡 接口返回
+## 📡 接口返回（schema v1）
+
+接口原样返回 `status.json`。字段定义在 `watcher/schema.py`，改字段要同步改这里并把 `schema_version` 加 1。
 
 ```json
 {
+  "schema_version": 1,
   "service": "local-tasks-health",
   "host": "app-node-01",
-  "checked_at": "2026-10-14T21:12:04+0800",
+  "checked_at": "2026-10-14T21:12:04+08:00",
+  "checked_at_epoch": 1791983524,
+  "duration_ms": 6210,
   "healthy": true,
   "exit_code": 0,
   "problem_count": 0,
@@ -259,23 +281,83 @@ GET http://<VPS_IP>:43154/s/<TOKEN>.json
   "summary": "✅ 全部正常（58 项）",
   "problems": [],
   "links": [
-    { "kind": "link", "name": "外接盘备份", "ok": true, "detail": "19.4h 前跑过，失败 1 条" }
-  ]
+    { "kind": "link", "type": "backup", "name": "外接盘备份", "ok": true, "detail": "19.4h 前跑过，失败 1 条" }
+  ],
+  "services": [
+    { "name": "my-app", "scope": "system", "state": "active", "ok": true, "enabled": "enabled", "ghost": false, "detail": "active" }
+  ],
+  "crontab_jobs": [],
+  "active_hermes_jobs": [],
+  "paused_hermes_jobs": [],
+  "skipped": [ { "kind": "dns", "name": null, "reason": "not_configured" } ],
+  "resources": { "mem_pct": 41, "disk_pct": 63, "load": [0.21, 0.3, 0.28] }
 }
 ```
+
+<details><summary>字段说明</summary>
+
+| 字段 | 类型 | 含义 |
+|---|---|---|
+| `schema_version` | int | 固定 1 |
+| `service` | str | 固定 `local-tasks-health` |
+| `host` | str | 主机名 |
+| `checked_at` | str | ISO 8601，带时区偏移 |
+| `checked_at_epoch` | int | Unix 秒；**失联判断用它** |
+| `duration_ms` | int | 本轮耗时 |
+| `healthy` | bool | `exit_code == 0` |
+| `exit_code` | int | 0 健康 / 1 有问题 / 2 配置或框架错误 |
+| `problem_count` | int | `problems` 条数 |
+| `total_checked` | int | 实际判定的条目数（服务、活跃任务、链路各算一条；暂停任务和 skipped 不算） |
+| `summary` | str | 一句话结论 |
+| `problems[]` | `{kind, name, scope, detail, probe}` | kind ∈ `service` `hermes-cron` `crontab` `backup` `capture` `proxy` `dns` `probe-error`；probe = 配置里的探测 id |
+| `links[]` | `{kind:"link", type, name, ok, detail}` | type ∈ `backup` `capture` `proxy` `dns` |
+| `services[]` | `{name, scope, state, ok, enabled, ghost, detail}` | state = ActiveState；enabled = UnitFileState；ghost = 单元不存在 |
+| `crontab_jobs[]` | `{name, log, period_min, age_min, ok, detail}` | age_min 为 null = 日志不存在 |
+| `active_hermes_jobs[]` | `{name, profile, schedule, period_min, age_h, last_status, ok, detail}` | 启用中的任务 |
+| `paused_hermes_jobs[]` | 同上，`ok` 恒为 true | 暂停的任务，不报警 |
+| `skipped[]` | `{kind, name, reason}` | reason ∈ `not_configured`（整类没配，name 为 null）`disabled` `missing_tool:<命令>` |
+| `resources` | `{mem_pct, disk_pct, load}` | 取不到的值为 null |
+
+</details>
 
 ---
 
 ## 🧭 判定口径
 
-| 检查项 | 怎么判 |
-|---|---|
-| **定时任务** | 超过「**自身周期 × 2.5**」没跑 → 逾期；上次退出码 `error` → 异常 |
-| **crontab** | 靠对应**日志文件的修改时间**判逾期（同样 2.5 倍宽限） |
-| **备份链** | 日志超 **30h** 没更新 → 挂；日志里「失败 N 条」> 2 → 异常 |
-| **抓包类** | 抓包文件 **6 秒内没变大** → 断了 |
-| **代理类** | HTTP 401 或 200 → 活（401 = 活着但没给 key） |
-| **DNS** | 用它解析一个域名，答不上来 → 坏 |
+| 检查项（kind） | 怎么判 | 可调参数 |
+|---|---|---|
+| **常驻服务**（`service`） | `systemctl [--user] show` 的 ActiveState 不是 `active` → 挂；LoadState 为 `not-found` → 幽灵项 | `scope` |
+| **定时任务**（`hermes_jobs`） | 超过「**自身周期 × 2.5**」没跑 → 逾期；上次结果 `error` → 异常；从没跑过 / 缺周期 → 异常 | `grace` `error_statuses` |
+| **crontab**（`crontab_log`） | 靠对应**日志文件的修改时间**判逾期（同样 2.5 倍宽限）；日志不存在 → 异常 | `period_min` `grace` |
+| **备份链**（`backup_log`） | 日志超 **30h** 没更新 → 挂；日志里「失败 N 条」> 2 → 异常 | `max_age_h` `fail_regex` `max_fail` |
+| **抓包类**（`capture_file`） | 最新的抓包文件 **6 秒内没变大** → 断了（轮转出新文件算活） | `glob` `window_s` |
+| **代理类**（`http_proxy`） | HTTP 401 或 200 → 活（401 = 活着但没给 key） | `ok_codes` |
+| **DNS**（`dns`） | 用它解析一个域名，答不上来 → 坏；配了 `server` 就用 `dig @server`，没装 dig 直接报错，不偷偷换系统解析器 | `server` `query` |
+
+所有探测并发执行，单项有超时（默认 10s），整轮上限 110s。
+
+## 🧩 探测配置
+
+巡检什么全部写在 `/etc/watcher/probes.json`，代码里不写死任何路径（完整示例：`deploy/probes.example.json`）：
+
+```json
+{
+  "version": 1,
+  "defaults": { "timeout_s": 10, "grace": 2.5 },
+  "probes": [
+    { "id": "svc-app", "kind": "service", "name": "my-app", "scope": "system" },
+    { "id": "hermes",  "kind": "hermes_jobs", "source_cmd": ["/opt/watcher/adapters/hermes-jobs.sh"] },
+    { "id": "bk-usb",  "kind": "backup_log", "name": "外接盘备份", "log": "/var/log/backup.log" }
+  ]
+}
+```
+
+- 每项必须有唯一的 `id` 和 `kind`；`"enabled": false` 可临时停用（记入 `skipped`）
+- 某种 kind **一项都没配** → `skipped` 里写 `not_configured`，不会静默当成正常
+- 配置写错（未知 kind、缺必填参数、id 重复）→ 该项记 `probe-error`，`exit_code = 2`，其它项照常跑
+- **hermes 适配器**：`source_cmd` 是参数数组（不经 shell），向 stdout 输出 JSON 数组，每项
+  `{name, profile, schedule, period_min, last_run_epoch, last_status, enabled}`。
+  hermes 的状态存在哪、什么格式由你的环境决定，适配器负责翻译成这个格式；`tests/fake-hermes-adapter.py` 可作参考
 
 **为什么用「周期 × 2.5」而不是严格按周期？** 因为任务偶尔晚几分钟是正常的，报假警比漏报更烦人。
 
@@ -285,18 +367,20 @@ GET http://<VPS_IP>:43154/s/<TOKEN>.json
 
 **原则**：只动**已经死的**，绝不动活的；只做「重启」这类**可逆**操作。
 
-**黑名单优于白名单**：白名单要维护一份服务清单，漏登记的服务永远没人管；
-黑名单只排除**明确不该碰的**，其余「死了就修」——覆盖面更全，维护成本更低。
+**只认白名单**：只有 `autofix.py` 顶部 `WHITELIST` 里登记过的服务才会被自动重启；
+没登记的服务死了只报告。新加一个巡检项不会自动获得重启权限 —— 这和「保守、只做可逆操作」的定位一致，
+代价是新服务要记得手动登记。
 
 | 问题 | 自动处理 |
 |---|---|
-| 服务 `inactive` | ✅ 重启它（**动手前先复检**，快照可能是几分钟前的） |
-| 服务/单元**根本不存在**（幽灵项） | ❌ 跳过并标记，**不重启**（避免天天误报） |
-| 抓包服务断了 | ✅ 重启 |
-| 向量化/代理服务挂了 | ✅ 重启 |
+| 白名单内的服务 `inactive` | ✅ 重启它（**动手前先复检**，快照可能是几分钟前的） |
+| 白名单外的服务挂了 | ❌ 只报告 |
+| 服务/单元**根本不存在**（幽灵项） | ❌ 跳过，只记日志 + 台账标 👻，**不重启也不推送**（避免天天误报） |
+| 抓包 / 代理服务挂了 | ✅ 重启（服务在白名单内时）；链路探测本身只报告 |
 | 备份失败 | ❌ **不自动**（怕越修越坏），只报告 |
 | 定时任务逾期 | ❌ **不自动**，只报告 |
-| **被用户主动停用的服务** | ❌ **不碰**（单元文件里通常会留注释说明，先读注释再判） |
+| **被用户主动停用的服务** | ❌ **不碰**：`UnitFileState` 为 `disabled` / `masked` 即视为主动停用，只记日志 |
+| status.json 格式不对 / 超过 15 分钟没更新 | ❌ 本轮**不动手**（格式不对退出码 2；过期打印一行提示） |
 | **改配置 / 改凭据 / 改密码 / 重启整机** | ❌ **绝不碰**，只报告 |
 
 ---

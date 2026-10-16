@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "service": "local-tasks-health",
+  "host": "app-node-01",
+  "checked_at": "2026-10-15T21:50:03+08:00",
+  "checked_at_epoch": 1792072203,
+  "duration_ms": 6210,
+  "healthy": true,
+  "exit_code": 0,
+  "problem_count": 0,
+  "total_checked": 6,
+  "summary": "✅ 全部正常（6 项）",
+  "problems": [],
+  "links": [
+    {"kind": "link", "type": "backup", "name": "外接盘备份", "ok": true, "detail": "19.4h 前跑过，失败 1 条"},
+    {"kind": "link", "type": "proxy", "name": "向量代理", "ok": true, "detail": "HTTP 401"}
+  ],
+  "services": [
+    {"name": "my-app", "scope": "system", "state": "active", "ok": true, "enabled": "enabled", "ghost": false, "detail": "active"}
+  ],
+  "crontab_jobs": [
+    {"name": "同步", "log": "/var/log/sync.log", "period_min": 60, "age_min": 12.5, "ok": true, "detail": "12.5min 前更新"}
+  ],
+  "active_hermes_jobs": [
+    {"name": "日报", "profile": "default", "schedule": "0 9 * * *", "period_min": 1440, "age_h": 12.8, "last_status": "ok", "ok": true, "detail": "12.8h 前跑过"}
+  ],
+  "paused_hermes_jobs": [
+    {"name": "旧周报", "profile": "default", "schedule": "0 10 * * 1", "period_min": 10080, "age_h": null, "last_status": null, "ok": true, "detail": "已暂停"}
+  ],
+  "skipped": [
+    {"kind": "capture_file", "name": null, "reason": "not_configured"},
+    {"kind": "dns", "name": null, "reason": "not_configured"}
+  ],
+  "resources": {"mem_pct": 41, "disk_pct": 63, "load": [0.21, 0.30, 0.28]}
+}

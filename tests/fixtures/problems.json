@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "service": "local-tasks-health",
+  "host": "app-node-01",
+  "checked_at": "2026-10-15T21:50:03+08:00",
+  "checked_at_epoch": 1792072203,
+  "duration_ms": 6305,
+  "healthy": false,
+  "exit_code": 1,
+  "problem_count": 7,
+  "total_checked": 10,
+  "summary": "❌ 7 个问题：service:capture-svc, service:embed-proxy, service:ghost-svc, service:old-svc, service:legacy-app 等",
+  "problems": [
+    {"kind": "service", "name": "capture-svc", "scope": "system", "detail": "inactive", "probe": "svc-capture"},
+    {"kind": "service", "name": "embed-proxy", "scope": "user", "detail": "failed", "probe": "svc-embed"},
+    {"kind": "service", "name": "ghost-svc", "scope": "system", "detail": "inactive · 单元不存在（幽灵项）", "probe": "svc-ghost"},
+    {"kind": "service", "name": "old-svc", "scope": "system", "detail": "inactive · disabled", "probe": "svc-old"},
+    {"kind": "service", "name": "legacy-app", "scope": "system", "detail": "inactive", "probe": "svc-legacy"},
+    {"kind": "backup", "name": "外接盘备份", "scope": null, "detail": "31.2h 没更新（上限 30h）", "probe": "bk-usb"},
+    {"kind": "hermes-cron", "name": "日报", "scope": "default", "detail": "逾期：62.0h 前跑过（周期 1440min × 2.5）", "probe": "hermes"}
+  ],
+  "links": [
+    {"kind": "link", "type": "backup", "name": "外接盘备份", "ok": false, "detail": "31.2h 没更新（上限 30h）"}
+  ],
+  "services": [
+    {"name": "capture-svc", "scope": "system", "state": "inactive", "ok": false, "enabled": "enabled", "ghost": false, "detail": "inactive"},
+    {"name": "embed-proxy", "scope": "user", "state": "failed", "ok": false, "enabled": "enabled", "ghost": false, "detail": "failed"},
+    {"name": "ghost-svc", "scope": "system", "state": "inactive", "ok": false, "enabled": "", "ghost": true, "detail": "inactive · 单元不存在（幽灵项）"},
+    {"name": "old-svc", "scope": "system", "state": "inactive", "ok": false, "enabled": "disabled", "ghost": false, "detail": "inactive · disabled"},
+    {"name": "legacy-app", "scope": "system", "state": "inactive", "ok": false, "enabled": "enabled", "ghost": false, "detail": "inactive"},
+    {"name": "my-app", "scope": "system", "state": "active", "ok": true, "enabled": "enabled", "ghost": false, "detail": "active"}
+  ],
+  "crontab_jobs": [],
+  "active_hermes_jobs": [
+    {"name": "日报", "profile": "default", "schedule": "0 9 * * *", "period_min": 1440, "age_h": 62.0, "last_status": "ok", "ok": false, "detail": "逾期：62.0h 前跑过（周期 1440min × 2.5）"}
+  ],
+  "paused_hermes_jobs": [],
+  "skipped": [
+    {"kind": "crontab_log", "name": null, "reason": "not_configured"}
+  ],
+  "resources": {"mem_pct": 88, "disk_pct": 91, "load": [3.1, 2.8, 2.5]}
+}

@@ -41,7 +41,7 @@ def refresh_loop():
     while True:
         try:
             r = subprocess.run([CHECK_CMD], timeout=120, capture_output=True, text=True)
-            if r.returncode != 0:
+            if r.returncode not in (0, 1):     # 1 = 巡检发现问题（正常结果），2+ = 配置/框架错误
                 print(f"巡检脚本退出码 {r.returncode}: {(r.stderr or '').strip()[:200]}", file=sys.stderr)
         except Exception as e:
             print(f"巡检失败: {e}", file=sys.stderr)

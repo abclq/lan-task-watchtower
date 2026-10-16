@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "defaults": { "timeout_s": 10, "grace": 2.5 },
+  "probes": [
+    { "id": "svc-app",     "kind": "service", "name": "my-app",      "scope": "system" },
+    { "id": "svc-capture", "kind": "service", "name": "capture-svc", "scope": "system" },
+    { "id": "svc-embed",   "kind": "service", "name": "embed-proxy", "scope": "user" },
+
+    { "id": "hermes", "kind": "hermes_jobs", "name": "hermes",
+      "source_cmd": ["/opt/watcher/adapters/hermes-jobs.sh"],
+      "error_statuses": ["error", "failed"] },
+
+    { "id": "cron-sync", "kind": "crontab_log", "name": "同步",
+      "log": "/var/log/sync.log", "period_min": 60 },
+
+    { "id": "bk-usb", "kind": "backup_log", "name": "外接盘备份",
+      "log": "/var/log/backup.log", "max_age_h": 30,
+      "fail_regex": "失败\\s*(\\d+)\\s*条", "max_fail": 2 },
+
+    { "id": "cap-1", "kind": "capture_file", "name": "抓包",
+      "glob": "/data/capture/*.pcap", "window_s": 6 },
+
+    { "id": "px-embed", "kind": "http_proxy", "name": "向量代理",
+      "url": "http://127.0.0.1:8081/v1/models", "ok_codes": [200, 401] },
+
+    { "id": "dns-main", "kind": "dns", "name": "主DNS",
+      "server": "127.0.0.1", "query": "example.com" },
+
+    { "id": "dns-old", "kind": "dns", "name": "旧DNS", "enabled": false,
+      "server": "192.0.2.2", "query": "example.com" }
+  ]
+}

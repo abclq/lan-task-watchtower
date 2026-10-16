@@ -1,0 +1,9 @@
+{
+  "host": "app-node-01",
+  "time": "2026-10-15 21:50:03",
+  "status": "ALERT",
+  "alert": "myapp 缺失; ",
+  "mem": "41%",
+  "disk": "63%",
+  "load": "0.21 0.30 0.28"
+}
